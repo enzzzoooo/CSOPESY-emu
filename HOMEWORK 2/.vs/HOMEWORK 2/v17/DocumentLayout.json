@@ -1,0 +1,37 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "D:\\DLSU\\4th Year\\OPESY\\group\\CSOPESY-emu\\HOMEWORK 2\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{E9350CB7-0007-4B17-8361-9660376AB7EA}|HOMEWORK 2\\HOMEWORK 2.vcxproj|D:\\DLSU\\4th Year\\OPESY\\group\\CSOPESY-emu\\HOMEWORK 2\\HOMEWORK 2\\HOMEWORK 2.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{E9350CB7-0007-4B17-8361-9660376AB7EA}|HOMEWORK 2\\HOMEWORK 2.vcxproj|solutionrelative:HOMEWORK 2\\HOMEWORK 2.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "HOMEWORK 2.cpp",
+              "DocumentMoniker": "D:\\DLSU\\4th Year\\OPESY\\group\\CSOPESY-emu\\HOMEWORK 2\\HOMEWORK 2\\HOMEWORK 2.cpp",
+              "RelativeDocumentMoniker": "HOMEWORK 2\\HOMEWORK 2.cpp",
+              "ToolTip": "D:\\DLSU\\4th Year\\OPESY\\group\\CSOPESY-emu\\HOMEWORK 2\\HOMEWORK 2\\HOMEWORK 2.cpp",
+              "RelativeToolTip": "HOMEWORK 2\\HOMEWORK 2.cpp",
+              "ViewState": "AgIAAFEAAAAAAAAAAAAAAGsAAAAFAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2025-05-31T11:33:03.067Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
