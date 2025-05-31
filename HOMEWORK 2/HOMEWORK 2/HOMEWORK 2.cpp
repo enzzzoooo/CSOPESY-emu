@@ -18,8 +18,6 @@ public:
     std::string name;
     std::string timestamp;
 
-    Process() : name(""), timestamp(getCurrentTimestamp()) {}
-
     Process(const std::string& processName) : name(processName) {
         timestamp = getCurrentTimestamp();
     }
@@ -67,23 +65,6 @@ void clearScreen() {
     std::system("cls");
 }
 
-void printHeader() {
-    clearScreen();
-    printLogo();
-    std::cout << "\033[32mHello. Welcome to CSOPESY commandLine!\033[0m" << std::endl;
-    std::cout << "Type \033[33m'exit'\033[0m to quit, \033[33m'clear'\033[0m to clear the screen" << std::endl;
-    std::cout << "Enter a command: " << std::endl;
-}
-
-void printProcessConsole(const Process& process) {
-    clearScreen();
-    std::cout << "Process name: " << process.name << std::endl;
-    std::cout << "Current line of instruction / Total line of instruction: 0/50" << std::endl;
-    std::cout << "Timestamp: " << process.timestamp << std::endl;
-    std::cout << std::endl;
-    std::cout << "Type \033[33m'exit'\033[0m to return to main console" << std::endl;
-}
-
 std::string parseScreenCommand(const std::string& command, std::string& flag, std::string& name) {
     std::istringstream iss(command);
     std::string word;
@@ -125,51 +106,69 @@ std::string toLower(const std::string& str) {
     return result;
 }
 
-void runMainConsole() {
-    printHeader();
+int main() {
+    bool running = true;
+    currentScreen = ScreenType::MAIN_CONSOLE;
+    
+    MainConsole mainConsole;
+    ProcessConsole processConsole;
+    
+    while (running) {
+        if (currentScreen == ScreenType::MAIN_CONSOLE) {
+            mainConsole.run();
+            if (currentScreen == ScreenType::MAIN_CONSOLE) {
+                running = false; // exit loop
+            }
+        }
+        else if (currentScreen == ScreenType::PROCESS_CONSOLE) {
+            processConsole.run();
+        }
+    }
+    
+    return 0;
+}
 
-    std::string command;
-    while (true) {
-        std::cout << "> ";
-        std::getline(std::cin, command);
+class Console {
+public:
+    virtual ~Console() = default;
+    virtual void run() = 0;
+    virtual void display() = 0;
+};
 
+class MainConsole : public Console {
+public:
+    void display() override {
+        clearScreen();
+        printLogo();
+        std::cout << "\033[32mHello. Welcome to CSOPESY commandLine!\033[0m" << std::endl;
+        std::cout << "Type \033[33m'exit'\033[0m to quit, \033[33m'clear'\033[0m to clear the screen" << std::endl;
+        std::cout << "Enter a command: " << std::endl;
+    }
+    
+    void run() override {
+        display();
+        
+        std::string command;
+        while (true) {
+            std::cout << "> ";
+            std::getline(std::cin, command);
+            
+            if (handleCommand(command)) {
+                return; // Screen switch or exit requested
+            }
+        }
+    }
+    
+private:
+    bool handleCommand(const std::string& command) {
         std::string lowerCommand = toLower(command);
-
         std::string flag, name;
-
+        
         if (lowerCommand == "screen") {
             std::cout << "Please specify a screen option: '-s <name>', '-r <name>', or '-ls'." << std::endl;
         }
         else if (parseScreenCommand(command, flag, name) == "valid") {
-            if (flag == "-ls") {
-                if (processes.empty()) {
-                    std::cout << "No active processes found." << std::endl;
-                }
-                else {
-                    std::cout << "Active processes:" << std::endl;
-                    for (const auto& [procName, process] : processes) {
-                        std::cout << " - " << procName << " (created at " << process.timestamp << ")" << std::endl;
-                    }
-                }
-            }
-            else if (flag == "-s") {
-                Process newProcess(name);
-                processes[name] = newProcess;
-                currentProcessName = name;
-                currentScreen = ScreenType::PROCESS_CONSOLE;
-                return;
-            }
-            else if (flag == "-r") {
-                auto it = processes.find(name);
-                if (it != processes.end()) {
-                    currentProcessName = name;
-                    currentScreen = ScreenType::PROCESS_CONSOLE;
-                    return;
-                }
-                else {
-                    std::cout << "Process '" << name << "' not found." << std::endl;
-                }
-            }
+            return handleScreenCommand(flag, name);
         }
         else if (lowerCommand.rfind("screen ", 0) == 0) {
             std::cout << "Invalid screen command. Use '-s <name>', '-r <name>', or '-ls'." << std::endl;
@@ -187,57 +186,108 @@ void runMainConsole() {
             std::cout << "report-util command recognized. Doing something." << std::endl;
         }
         else if (lowerCommand == "clear") {
-            printHeader();
+            display();
         }
         else if (lowerCommand == "exit") {
             std::cout << "exit command recognized. Exiting program." << std::endl;
-            currentScreen = ScreenType::MAIN_CONSOLE; // Will cause main loop to stop
-            return;
+            currentScreen = ScreenType::MAIN_CONSOLE;
+            return true;
         }
         else {
             std::cout << "Unknown command: " << command << std::endl;
         }
+        
+        return false;
     }
-}
+    
+    bool handleScreenCommand(const std::string& flag, const std::string& name) {
+        if (flag == "-ls") {
+            listProcesses();
+            return false;
+        }
+        else if (flag == "-s") {
+            createProcess(name);
+            return true;
+        }
+        else if (flag == "-r") {
+            return reattachProcess(name);
+        }
+        return false;
+    }
+    
+    void listProcesses() {
+        if (processes.empty()) {
+            std::cout << "No active processes found." << std::endl;
+        }
+        else {
+            std::cout << "Active processes:" << std::endl;
+            for (const auto& [procName, process] : processes) {
+                std::cout << " - " << procName << " (created at " << process.timestamp << ")" << std::endl;
+            }
+        }
+    }
+    
+    void createProcess(const std::string& name) {
+        Process newProcess(name);
+        processes[name] = newProcess;
+        currentProcessName = name;
+        currentScreen = ScreenType::PROCESS_CONSOLE;
+    }
+    
+    bool reattachProcess(const std::string& name) {
+        auto it = processes.find(name);
+        if (it != processes.end()) {
+            currentProcessName = name;
+            currentScreen = ScreenType::PROCESS_CONSOLE;
+            return true;
+        }
+        else {
+            std::cout << "Process '" << name << "' not found." << std::endl;
+            return false;
+        }
+    }
+};
 
-void runProcessConsole() {
-    Process& currentProcess = processes[currentProcessName];
-    printProcessConsole(currentProcess);
-
-    std::string command;
-    while (true) {
-        std::cout << "> ";
-        std::getline(std::cin, command);
-
+class ProcessConsole : public Console {
+public:
+    void display() override {
+        Process& currentProcess = processes[currentProcessName];
+        clearScreen();
+        std::cout << "Process name: " << currentProcess.name << std::endl;
+        std::cout << "Current line of instruction / Total line of instruction: 0/50" << std::endl;
+        std::cout << "Timestamp: " << currentProcess.timestamp << std::endl;
+        std::cout << std::endl;
+        std::cout << "Type \033[33m'exit'\033[0m to return to main console" << std::endl;
+    }
+    
+    void run() override {
+        display();
+        
+        std::string command;
+        while (true) {
+            std::cout << "> ";
+            std::getline(std::cin, command);
+            
+            if (handleCommand(command)) {
+                return; // Exit requested
+            }
+        }
+    }
+    
+private:
+    bool handleCommand(const std::string& command) {
         std::string lowerCommand = toLower(command);
-
+        
         if (lowerCommand == "exit") {
             currentProcessName = "";
             currentScreen = ScreenType::MAIN_CONSOLE;
-            return;
+            return true;
         }
         else {
             std::cout << "Unknown command in process console: " << command << std::endl;
             std::cout << "Type 'exit' to return to main console." << std::endl;
         }
+        
+        return false;
     }
-}
-
-int main() {
-    bool running = true;
-    currentScreen = ScreenType::MAIN_CONSOLE;
-
-    while (running) {
-        if (currentScreen == ScreenType::MAIN_CONSOLE) {
-            runMainConsole();
-            if (currentScreen == ScreenType::MAIN_CONSOLE) {
-                running = false; // exit loop
-            }
-        }
-        else if (currentScreen == ScreenType::PROCESS_CONSOLE) {
-            runProcessConsole();
-        }
-    }
-
-    return 0;
-}
+};
