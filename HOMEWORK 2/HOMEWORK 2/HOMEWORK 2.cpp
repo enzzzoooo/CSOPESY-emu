@@ -7,19 +7,58 @@
 #include <sstream>
 #include <iomanip>
 #include <vector>
+#include <queue>
+#include <thread>
+#include <mutex>
+#include <fstream>
+#include <atomic>
 
 enum class ScreenType {
     MAIN_CONSOLE,
     PROCESS_CONSOLE
 };
 
+enum class ProcessStatus {
+    Waiting,
+    Running,
+    Finished
+};
+
 class Process {
 public:
     std::string name;
     std::string timestamp;
+    std::atomic<int> progress{ 0 };
+    int assignedCore = -1;
+    ProcessStatus status = ProcessStatus::Waiting;
 
+    // Default constructor
+    Process() = default;
+
+    // Parameterized constructor
     Process(const std::string& processName) : name(processName) {
         timestamp = getCurrentTimestamp();
+    }
+
+    // Copy constructor (required because of std::atomic)
+    Process(const Process& other)
+        : name(other.name),
+        timestamp(other.timestamp),
+        progress(other.progress.load()),
+        assignedCore(other.assignedCore),
+        status(other.status) {
+    }
+
+    // Copy assignment operator (also required)
+    Process& operator=(const Process& other) {
+        if (this != &other) {
+            name = other.name;
+            timestamp = other.timestamp;
+            progress.store(other.progress.load());
+            assignedCore = other.assignedCore;
+            status = other.status;
+        }
+        return *this;
     }
 
 private:
@@ -52,50 +91,25 @@ private:
 
 ScreenType currentScreen = ScreenType::MAIN_CONSOLE;
 std::map<std::string, Process> processes;
+std::queue<std::string> fcfsQueue;
+std::mutex queueMutex;
+bool schedulerActive = false;
+bool stopScheduler = false;
 std::string currentProcessName = "";
+
+void clearScreen() {
+#ifdef _WIN32
+    std::system("cls");
+#else
+    std::system("clear");
+#endif
+}
 
 void printLogo() {
     std::cout << "  ___  ____   __   ____  ____  ____  _  _ " << std::endl;
     std::cout << " / __)/ ___) /  \\ (  _ \\(  __)/ ___)( \\/ )" << std::endl;
     std::cout << "( (__ \\___ \\(  O ) ) __/ ) _) \\___ \\ )  / " << std::endl;
     std::cout << " \\___)(____/ \\__/ (__)  (____)(____/(__/  " << std::endl;
-}
-
-void clearScreen() {
-    std::system("cls");
-}
-
-std::string parseScreenCommand(const std::string& command, std::string& flag, std::string& name) {
-    std::istringstream iss(command);
-    std::string word;
-    std::vector<std::string> tokens;
-
-    while (iss >> word) {
-        tokens.push_back(word);
-    }
-
-    if (tokens.size() == 2 && tokens[0] == "screen" && tokens[1] == "-ls") {
-        flag = "-ls";
-        name = "";
-        return "valid";
-    }
-
-    if (tokens.size() != 3) {
-        return "invalid";
-    }
-
-    if (tokens[0] != "screen") {
-        return "invalid";
-    }
-
-    flag = tokens[1];
-    name = tokens[2];
-
-    if (flag == "-s" || flag == "-r") {
-        return "valid";
-    }
-
-    return "invalid";
 }
 
 std::string toLower(const std::string& str) {
@@ -106,26 +120,38 @@ std::string toLower(const std::string& str) {
     return result;
 }
 
-int main() {
-    bool running = true;
-    currentScreen = ScreenType::MAIN_CONSOLE;
-    
-    MainConsole mainConsole;
-    ProcessConsole processConsole;
-    
-    while (running) {
-        if (currentScreen == ScreenType::MAIN_CONSOLE) {
-            mainConsole.run();
-            if (currentScreen == ScreenType::MAIN_CONSOLE) {
-                running = false; // exit loop
+void runScheduler(int coreId) {
+    while (!stopScheduler) {
+        std::string procName;
+
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            if (!fcfsQueue.empty()) {
+                procName = fcfsQueue.front();
+                fcfsQueue.pop();
+
+                Process& p = processes[procName];
+                p.status = ProcessStatus::Running;
+                p.assignedCore = coreId;
             }
         }
-        else if (currentScreen == ScreenType::PROCESS_CONSOLE) {
-            processConsole.run();
+
+        if (!procName.empty()) {
+            Process& p = processes[procName];
+            std::ofstream out(procName + ".txt");
+            for (int i = 0; i < 100; ++i) {
+                out << p.timestamp << " Core: " << coreId
+                    << " \"Hello world from " << procName << "!\"\n";
+                p.progress = i + 1;
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }
+            p.status = ProcessStatus::Finished;
+            out.close();
+        }
+        else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }
-    
-    return 0;
 }
 
 class Console {
@@ -144,150 +170,106 @@ public:
         std::cout << "Type \033[33m'exit'\033[0m to quit, \033[33m'clear'\033[0m to clear the screen" << std::endl;
         std::cout << "Enter a command: " << std::endl;
     }
-    
+
     void run() override {
         display();
-        
         std::string command;
         while (true) {
             std::cout << "> ";
             std::getline(std::cin, command);
-            
-            if (handleCommand(command)) {
-                return; // Screen switch or exit requested
-            }
+            if (handleCommand(command)) return;
         }
     }
-    
+
 private:
     bool handleCommand(const std::string& command) {
-        std::string lowerCommand = toLower(command);
-        std::string flag, name;
-        
-        if (lowerCommand == "screen") {
-            std::cout << "Please specify a screen option: '-s <name>', '-r <name>', or '-ls'." << std::endl;
-        }
-        else if (parseScreenCommand(command, flag, name) == "valid") {
-            return handleScreenCommand(flag, name);
-        }
-        else if (lowerCommand.rfind("screen ", 0) == 0) {
-            std::cout << "Invalid screen command. Use '-s <name>', '-r <name>', or '-ls'." << std::endl;
-        }
-        else if (lowerCommand == "initialize") {
-            std::cout << "initialize command recognized. Doing something." << std::endl;
-        }
-        else if (lowerCommand == "scheduler-test") {
-            std::cout << "scheduler-test command recognized. Doing something." << std::endl;
-        }
-        else if (lowerCommand == "scheduler-stop") {
-            std::cout << "scheduler-stop command recognized. Doing something." << std::endl;
-        }
-        else if (lowerCommand == "report-util") {
-            std::cout << "report-util command recognized. Doing something." << std::endl;
-        }
-        else if (lowerCommand == "clear") {
-            display();
-        }
-        else if (lowerCommand == "exit") {
-            std::cout << "exit command recognized. Exiting program." << std::endl;
-            currentScreen = ScreenType::MAIN_CONSOLE;
-            return true;
-        }
-        else {
-            std::cout << "Unknown command: " << command << std::endl;
-        }
-        
-        return false;
-    }
-    
-    bool handleScreenCommand(const std::string& flag, const std::string& name) {
-        if (flag == "-ls") {
-            listProcesses();
-            return false;
-        }
-        else if (flag == "-s") {
-            createProcess(name);
-            return true;
-        }
-        else if (flag == "-r") {
-            return reattachProcess(name);
-        }
-        return false;
-    }
-    
-    void listProcesses() {
-        if (processes.empty()) {
-            std::cout << "No active processes found." << std::endl;
-        }
-        else {
-            std::cout << "Active processes:" << std::endl;
-            for (const auto& [procName, process] : processes) {
-                std::cout << " - " << procName << " (created at " << process.timestamp << ")" << std::endl;
+        std::string lower = toLower(command);
+        if (lower == "clear") display();
+        else if (lower == "exit") return true;
+        else if (lower == "screen -ls") {
+            if (processes.empty()) std::cout << "No active processes.\n";
+            else {
+                std::cout << "-------------------------------------------------\n";
+                std::cout << "\nRunning processes:\n";
+                for (const auto& [n, p] : processes) {
+                    if (p.status == ProcessStatus::Running)
+                        std::cout << n << " (" << p.timestamp << ") Core: "
+                        << p.assignedCore << " Progress: "
+                        << p.progress << "/100\n";
+                }
+                std::cout << "\nFinished processes:\n";
+                for (const auto& [n, p] : processes) {
+                    if (p.status == ProcessStatus::Finished)
+                        std::cout << n << " (" << p.timestamp << ")\n";
+                }
+                std::cout << "\nWaiting processes:\n";
+                for (const auto& [n, p] : processes) {
+                    if (p.status == ProcessStatus::Waiting)
+                        std::cout << n << " (" << p.timestamp << ")\n";
+                }
+                std::cout << "-------------------------------------------------\n";
             }
         }
-    }
-    
-    void createProcess(const std::string& name) {
-        Process newProcess(name);
-        processes[name] = newProcess;
-        currentProcessName = name;
-        currentScreen = ScreenType::PROCESS_CONSOLE;
-    }
-    
-    bool reattachProcess(const std::string& name) {
-        auto it = processes.find(name);
-        if (it != processes.end()) {
-            currentProcessName = name;
-            currentScreen = ScreenType::PROCESS_CONSOLE;
-            return true;
+        else if (lower.find("screen -s ") == 0) {
+            std::string name = command.substr(10);
+            Process proc(name);
+            processes[name] = proc;
+            {
+                std::lock_guard<std::mutex> lock(queueMutex);
+                fcfsQueue.push(name);
+            }
+            std::cout << "Process " << name << " created.\n";
         }
-        else {
-            std::cout << "Process '" << name << "' not found." << std::endl;
-            return false;
+        else if (lower == "scheduler-test") {
+            if (!schedulerActive) {
+                schedulerActive = true;
+                for (int i = 0; i < 4; ++i)
+                    std::thread(runScheduler, i).detach();
+                std::cout << "Scheduler started.\n";
+            }
         }
+        else if (lower == "scheduler-stop") {
+            stopScheduler = true;
+            std::cout << "Scheduler stopping...\n";
+        }
+        else std::cout << "Unknown command.\n";
+        return false;
     }
 };
 
 class ProcessConsole : public Console {
 public:
     void display() override {
-        Process& currentProcess = processes[currentProcessName];
         clearScreen();
-        std::cout << "Process name: " << currentProcess.name << std::endl;
-        std::cout << "Current line of instruction / Total line of instruction: 0/50" << std::endl;
-        std::cout << "Timestamp: " << currentProcess.timestamp << std::endl;
-        std::cout << std::endl;
-        std::cout << "Type \033[33m'exit'\033[0m to return to main console" << std::endl;
+        std::cout << "Process name: " << currentProcessName << std::endl;
     }
-    
+
     void run() override {
         display();
-        
         std::string command;
         while (true) {
             std::cout << "> ";
             std::getline(std::cin, command);
-            
-            if (handleCommand(command)) {
-                return; // Exit requested
+            if (toLower(command) == "exit") {
+                currentScreen = ScreenType::MAIN_CONSOLE;
+                break;
             }
         }
     }
-    
-private:
-    bool handleCommand(const std::string& command) {
-        std::string lowerCommand = toLower(command);
-        
-        if (lowerCommand == "exit") {
-            currentProcessName = "";
-            currentScreen = ScreenType::MAIN_CONSOLE;
-            return true;
-        }
-        else {
-            std::cout << "Unknown command in process console: " << command << std::endl;
-            std::cout << "Type 'exit' to return to main console." << std::endl;
-        }
-        
-        return false;
-    }
 };
+
+int main() {
+    bool running = true;
+    MainConsole mainConsole;
+    ProcessConsole processConsole;
+    while (running) {
+        if (currentScreen == ScreenType::MAIN_CONSOLE) {
+            mainConsole.run();
+            if (currentScreen == ScreenType::MAIN_CONSOLE) running = false;
+        }
+        else if (currentScreen == ScreenType::PROCESS_CONSOLE) {
+            processConsole.run();
+        }
+    }
+    return 0;
+}
